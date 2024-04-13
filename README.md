@@ -4,4 +4,5 @@ Simulate measuring resistance between node points.
 Find hidden connections and unknown resistances.
 
 https://quantsignals.github.io/circuits/simulator_9_1.html
+
 https://quantsignals.github.io/circuits/simulator_9_2.html
