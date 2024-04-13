@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Circuit Simulator - Andreas Rhode</title>
+</head>
+
+<body>
+  <canvas id="circuitCanvas" width="800" height="600"></canvas>
+  <script>
+    // Define the canvas element and context
+    const canvas = document.getElementById("circuitCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // Define the node points as an array of objects with x and y coordinates
+    const nodes = [
+      {n: 0, x: 100, y: 100},
+      {n: 1, x: 300, y: 100},
+      {n: 2, x: 500, y: 100},
+      {n: 3, x: 100, y: 200},
+      {n: 4, x: 300, y: 200},
+      {n: 5, x: 500, y: 200},      
+      {n: 6, x: 100, y: 400},
+      {n: 7, x: 300, y: 400},
+      {n: 8, x: 500, y: 400},
+    ];
+
+   const dial_modes = [
+    {dig: 0, vmax: 1, pos: 1/3, x: 560, y: 320}, // diode 
+    {dig: 3, vmax: 2000, pos: 1, x: 645, y: 390}, //"2 kΩ" 
+    {dig: 2, vmax: 20000, pos: 2/3, x: 645, y: 320}, //"20 kΩ" 
+    {dig: 2, vmax: 200, pos: 0, x: 555, y: 390}, //"200 Ω"   
+   ];  
+   
+    const backgroundcolor = "#0047ba";
+    // Define the circuit elements as an array of objects with type and connections
+    let elements = [
+      {type: "r", connections: [0, 1], bands: ["red", "red", "brown", "gold"], resistance: 220},
+      //{type: "w", connections: [2, 3]},
+      {type: "r", connections: [1, 2], bands: ["brown", "black", "red", "gold"], resistance: 1000},
+      {type: "r", connections: [4, 7], bands: ["orange", "orange", "brown", "gold"], resistance: 330},
+      {type: "r", connections: [6, 7], bands: ["yellow", "violet", "black", "gold"], resistance: 47},      
+      {type: "w", connections: [2, 5], resistance: 0},      
+      {type: "w", connections: [5, 8], resistance: 0},
+      {type: "w", connections: [7, 8], resistance: 0}, 
+      {type: "w", connections: [3, 6], resistance: 0},       
+      {type: "s", connections: [1, 4], id : 0},      
+      {type: "s", connections: [0, 3], id : 1},
+      {type: "s", connections: [4, 5], id : 2},      
+    ];
+
+
+    let switches = {};
+    elements.forEach(function(e,i){
+      if(e.type=="s"){
+         switches[e.id]={isOpen:false} 
+      }
+    });
+
+    function updateResistances(){
+      res = [];
+      elements.forEach( function(e,i){
+          if(e.type=="r"){
+            res.push([e.connections[0],e.connections[1],e.resistance]);
+          }
+          if(e.type=="w"){
+            res.push([e.connections[0],e.connections[1],e.resistance]);
+          }        
+          if(e.type=="s"){
+            if(switches[e.id].isOpen==false){
+              res.push([e.connections[0], e.connections[1],0]);
+            }else{
+              res.push([e.connections[0], e.connections[1],100000000000000000]);
+            }
+          }
+      });
+      console.log("Update resistances: ", res )
+      return(res);                 
+    }
+    
+    let resistances = updateResistances();
+    // Define the multimeter properties
+    let isMeasuring = false;
+    let measurementValue = 0;
+    let precision = 5;
+    let ohmReading = 0;
+    let dialPosition = 1;
+    let dialDig = 0;
+    let dialValueMax = 20000;
+
+    let selectedNodes = [];
+
+    function getDialMode(x,y){
+      console.log("DialMode");
+      for (let i = 0; i < dial_modes.length; i++) {
+        const node = dial_modes[i];
+        const dx = x - node.x;
+        const dy = y - node.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist <= 20) { // fixed radius value of 10
+          return node;
+        }
+      }
+      return null;
+    }
+
+    function toggleSwitch(x, y) {
+      for (let i = 0; i < elements.length; i++) {
+        const e = elements[i];
+        if(e.type == "s"){
+          console.log(e)
+          const x0 = (nodes[e.connections[0]].x+nodes[e.connections[1]].x)/2;
+          const y0 = (nodes[e.connections[0]].y+nodes[e.connections[1]].y)/2;
+          const dx = x - x0;
+          const dy = y - y0;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          console.log(dist);
+          if (dist <= 20) { // fixed radius value of 10
+            console.log(switches[e.id]);
+            switches[e.id].isOpen = ! switches[e.id].isOpen; 
+          }
+        }
+      }
+    }
+          
+    function formatOhms(ohms) {
+      options =  {maximumIntegerDigits: 4, minimumFractionDigits: dialDig, maximumFractionDigits: dialDig}
+      if(ohms > dialValueMax){
+        ohms = 1;
+        return "1";
+      };
+      if (dialValueMax < 1000) {
+        return ohms.toLocaleString(undefined, options);
+      } else {
+        let kOhms = ohms / 1000;
+        return kOhms.toLocaleString(undefined, options) + 'k';
+      }
+    }
+
+
+    function redraw() {
+      console.log("redraw");
+      // Draw the circuit schematic
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = backgroundcolor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.font = "20px Arial";
+      ctx.fillStyle = "white";
+      ctx.textAlign = "left";
+      ctx.fillText("Lab 9 Exercise 1", 530, 110);
+
+      // Draw the multimeter body
+      ctx.fillStyle = "black";
+      ctx.fillRect(530, 190, 140, 220);
+
+      ctx.beginPath();
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = "orange";
+      ctx.rect(530, 190, 140, 220);
+      ctx.stroke();
+
+      // Draw the multimeter display
+      ctx.fillStyle = "grey";
+      ctx.fillRect(550, 210, 100, 90);
+
+      // Draw the Ohm reading
+      ctx.font = "25px Arial";
+      ctx.fillStyle = "white";
+      ctx.textAlign = "center";
+      ctx.fillText(formatOhms(ohmReading), 600, 260);
+
+      ctx.font = "20px Arial";
+      ctx.fillStyle = "white";
+      ctx.textAlign = "center";
+      ctx.fillText("Ohms", 600, 290);
+
+
+      // Draw the multimeter dial
+      let dialX = 600;
+      let dialY = 350;
+      let dialR = 40;
+      ctx.beginPath();
+      ctx.fillStyle = "#303030";
+      ctx.arc(dialX, dialY, dialR, 0, 2 * Math.PI);
+      ctx.fill();
+
+
+      // Draw dial
+
+      // Draw the dial handle
+ 
+      let angle = - 1.25 * Math.PI + 1.5 * (dialPosition) * Math.PI;
+      let dialAngle = angle;
+      let dial_r = 35;
+      let dial_x = dialX + dial_r * Math.cos(angle);
+      let dial_y = dialY + dial_r * Math.sin(angle);
+
+      ctx.beginPath();
+      ctx.fillStyle = "orange";
+      ctx.moveTo(dial_x, dial_y);
+      ctx.lineTo(dialX + 5 * Math.cos(angle - Math.PI / 2), dialY + 5 * Math.sin(angle - Math.PI / 2));
+      ctx.lineTo(dialX + 5 * Math.cos(angle + Math.PI / 2), dialY + 5 * Math.sin(angle + Math.PI / 2));
+      ctx.lineTo(dial_x, dial_y);
+      ctx.closePath();
+      ctx.fill();
+
+      // ctx.fillText("\u23DA", 550, 320); // ground
+      ctx.fillStyle = "white";
+      ctx.font = "12px Arial";
+      ctx.fillText("\u266A", 550, 315); //sound
+      ctx.fillText("\u23F5", 560, 320); //diode
+      ctx.fillText("\u23E4", 560, 319); //diode
+      ctx.fillText("\u23FD", 562, 320); //diode
+
+      ctx.fillText("2 kΩ", 645, 390);
+
+      ctx.fillText("20 kΩ", 645, 320);
+
+      ctx.fillText("200 Ω", 555, 390);
+
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        const color = node.selected ? "red" : "black";
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, node.radius, 0, 2 * Math.PI);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillText(node.label, node.x, node.y - node.radius - 10);
+      }
+      for (let i = 0; i < elements.length; i++) { // fixed variable name
+        const element = elements[i]; // fixed variable name
+        // Call the appropriate draw function based on the element type
+        switch (element.type) {
+          case "v":
+            drawVoltage(nodes[element.connections[0]], nodes[element.connections[1]], element.voltage);
+            break;
+          case "r":
+            drawResistor(nodes[element.connections[0]], nodes[element.connections[1]], element.bands);
+            break;
+          case "w":
+            drawWire(nodes[element.connections[0]], nodes[element.connections[1]]);
+            break;
+          case "s":
+            drawSwitch(nodes[element.connections[0]], nodes[element.connections[1]], switches[element.id].isOpen);
+            break;            
+          default:
+            break;
+        }
+      }
+      nodes.forEach((node) => {
+        drawNode(node);
+      });
+
+    }
+
+    function initCanvas() {
+      console.log("initCanvas");
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      ctx.lineWidth = 3;
+      ctx.font = "24px Arial";
+      ctx.fillStyle = "black";
+      ctx.textAlign = "center";
+      canvas.addEventListener("mousedown", (event) => {
+        const x = event.clientX;
+        const y = event.clientY;
+        console.log("Clicked", x, y);
+        const node = findNode(x, y);
+        if (node) {
+          if (selectedNodes.length === 0) {
+            selectedNodes.push(node);
+            node.selected = true;
+          } else if (selectedNodes.length === 1 && node !== selectedNodes[0]) {
+            selectedNodes.push(node);
+            node.selected = true;
+          } else if (selectedNodes.length === 2) {
+            const firstNode = selectedNodes[0];
+            firstNode.selected = false;
+            selectedNodes.shift();
+            selectedNodes.push(node);
+            node.selected = true;
+          }
+        }
+          
+          const dialMode = getDialMode(x,y);
+          if(dialMode){
+            dialPosition = dialMode.pos;
+            dialDig = dialMode.dig;
+            dialValueMax = dialMode.vmax;
+          };
+          
+          toggleSwitch(x,y);
+          
+          if (selectedNodes.length === 2) {
+            const n1 = selectedNodes[0].n;
+            const n2 = selectedNodes[1].n;
+            resistances = updateResistances();
+            ohmReading = effective_resistance(resistances, n1, n2, true);
+            console.log(
+              "Resistance", n1, n2, ohmReading
+            );
+          }
+                  
+
+          redraw();
+      });
+    }
+    function findNode(x, y) {
+
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        const dx = x - node.x;
+        const dy = y - node.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist <= 20) { // fixed radius value of 10
+
+          return node;
+        }
+      }
+      return null;
+    }
+
+
+    // Define the drawing functions
+    function drawWire(startNode, endNode) {
+      ctx.beginPath();
+      ctx.moveTo(startNode.x, startNode.y);
+      ctx.lineTo(endNode.x, endNode.y);
+      ctx.strokeStyle = "silver";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    function drawNode(node) {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, (node.selected == true) ? 10 : 5, 0, 2 * Math.PI);
+      ctx.fillStyle = (node.selected == true) ? "red" : "white";
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 2;
+      ctx.fill();
+      ctx.stroke();
+    }
+function drawSwitch(startNode, endNode, isOpen) {
+  const width = 40;
+  const height = 20;
+
+  // Calculate midpoint between startNode and endNode
+  const midpointX = (startNode.x + endNode.x) / 2;
+  const midpointY = (startNode.y + endNode.y) / 2;
+
+  // Offset switch position to center it on midpoint
+  const x = midpointX - width / 2;
+  const y = midpointY - height / 2;
+
+  // Draw wires between connecting nodes and switch
+  if(startNode.x == endNode.x)
+  {
+    drawWire(startNode, { x: midpointX, y: midpointY-height/2 });
+    drawWire({ x: midpointX, y: midpointY+height/2 }, endNode);
+    if(!isOpen){
+          drawWire(startNode, endNode);
+    }else{
+          drawWire({ x: midpointX, y: midpointY-height/2 }, 
+                   { x: midpointX+height/2, y: midpointY+height/2 });
+    }
+      
+  }else
+  {
+    drawWire(startNode, { x: midpointX-width/4, y: midpointY });
+    drawWire({ x: midpointX+width/4, y: midpointY}, endNode); 
+    if(!isOpen){
+          drawWire(startNode, endNode);
+    }else{
+          drawWire({ x: midpointX-width/4, y: midpointY }, 
+                   { x: midpointX+width/4, y: midpointY-height/2 });
+    }
+  }  
+  // Draw switch
+  ctx.save(); // Save context state before transformations
+  ctx.translate(x + width / 2, y + height / 2);
+  const angle = Math.atan2(endNode.y - startNode.y, endNode.x - startNode.x);
+  ctx.rotate(angle);
+  ctx.translate(-width / 2, -height / 2);
+
+  ctx.beginPath();
+  ctx.arc(width / 4, height / 2, height / 4, 0, Math.PI * 2);
+  ctx.fillStyle = isOpen ? "white" : "black";
+  ctx.fill();
+  ctx.stroke();
+  
+  ctx.beginPath();
+  ctx.arc(3 * width / 4, height / 2, height / 4, 0, Math.PI * 2);
+  ctx.fillStyle = "white";
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.restore(); // Restore original context state
+
+  // Reverse transformations to reset context position
+  ctx.save();
+  ctx.translate(width / 2, height / 2);
+  ctx.rotate(-angle);
+  ctx.translate(-x - width / 2, -y - height / 2);
+  ctx.restore();
+}
+
+
+ 
+
+    function drawResistor(startNode, endNode, bands) {
+      drawWire(startNode, endNode);
+
+      const x = startNode.x + (endNode.x - startNode.x) / 2;
+      const y = startNode.y + (endNode.y - startNode.y) / 2;
+      const width = 40;
+      const height = 20;
+      const borderRadius = 5;
+
+      const angle = Math.atan2(endNode.y - startNode.y, endNode.x - startNode.x);
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+
+      ctx.beginPath();
+      ctx.moveTo(-width / 2 + borderRadius, -height / 2);
+      ctx.lineTo(width / 2 - borderRadius, -height / 2);
+      ctx.quadraticCurveTo(width / 2, -height / 2, width / 2, -height / 2 + borderRadius);
+      ctx.lineTo(width / 2, height / 2 - borderRadius);
+      ctx.quadraticCurveTo(width / 2, height / 2, width / 2 - borderRadius, height / 2);
+      ctx.lineTo(-width / 2 + borderRadius, height / 2);
+      ctx.quadraticCurveTo(-width / 2, height / 2, -width / 2, height / 2 - borderRadius);
+      ctx.lineTo(-width / 2, -height / 2 + borderRadius);
+      ctx.quadraticCurveTo(-width / 2, -height / 2, -width / 2 + borderRadius, -height / 2);
+      ctx.closePath();
+
+      ctx.fillStyle = "blue";
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 2;
+      ctx.fill();
+      ctx.stroke();
+
+      const bandWidth = 5;
+      const bandHeight = 20;
+      const bandGap = 4;
+ 
+      for (let i = 0; i < bands.length; i++) {
+        ctx.beginPath();
+        const bandX = -width / 2 + i * (bandWidth + bandGap) + (bandGap + bandWidth) / 2;
+        const bandY = -bandHeight / 2;
+        ctx.rect(bandX, bandY, bandWidth, bandHeight);
+        ctx.fillStyle = bands[i];
+        ctx.fill();
+      }
+
+      ctx.rotate(-angle);
+      ctx.translate(-x, -y);
+    }
+
+    function drawVoltage(startNode, endNode, voltage) {
+      drawWire(startNode, endNode);
+      const textX = (startNode.x + endNode.x) / 2;
+      const textY = (startNode.y + endNode.y) / 2;
+      const barWidth = 40;
+      const barHeight = 5;
+      const barGap = 10;
+      ctx.font = "16px Arial";
+      ctx.fillStyle = "black";
+      ctx.textAlign = "center";
+
+      if (startNode.x === endNode.x) {
+        // Vertical wire
+        ctx.fillText(`+${voltage}V`, textX + barWidth / 2, textY - barHeight - barGap);
+        ctx.beginPath();
+        ctx.rect(textX - barWidth / 2, textY - barHeight - barGap / 2, barWidth, barHeight);
+        ctx.fillStyle = "black";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.rect(textX - barWidth / 2, textY - barGap / 2, barWidth, barGap);
+        ctx.fillStyle = backgroundcolor;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.rect(textX - barWidth / 2, textY + barGap / 2, barWidth, barHeight);
+        ctx.fillStyle = "black";
+        ctx.fill();
+      } else {
+        // Horizontal wire
+        ctx.save();
+        ctx.translate(textX, textY);
+        ctx.rotate(Math.PI / 2);
+        ctx.fillText(`+${voltage}V`, barWidth / 2, -barHeight - barGap);
+        ctx.beginPath();
+        ctx.rect(-barWidth / 2, -barHeight - barGap / 2, barWidth, barHeight);
+        ctx.fillStyle = "black";
+        ctx.fill();
+        ctx.beginPath();
+        ctx.rect(-barWidth / 2, -barGap / 2, barWidth, barGap);
+        ctx.fillStyle = backgroundcolor;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.rect(-barWidth / 2, +barGap / 2, barWidth, barHeight);
+        ctx.fillStyle = "black";
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function remove_zero_resistances(resistances_, node1_, node2_, verbose = false) {
+      [node1_, node2_] = [Math.min(node1_, node2_), Math.max(node1_, node2_)];
+      let node_map = {};
+
+      let resistance_ordered = resistances_.map(r => [Math.min(r[0], r[1]), Math.max(r[0], r[1]), r[2]]);
+
+      for (let r of resistance_ordered) {
+        node_map[r[0]] = r[0];
+        node_map[r[1]] = r[1];
+      }
+
+      if (verbose === true) {
+        console.log("Remove zero start:", node_map);
+      }
+
+      for (let r of resistance_ordered) {
+        let r0 = node_map[r[0]];
+        let r1 = node_map[r[1]];
+        [r0, r1] = [Math.min(r0, r1), Math.max(r0, r1)];
+        if (verbose === true && r[2] === 0) {
+          console.log("Found: ", r, r0, r1);
+        }
+
+        if (r[2] === 0 && !(r0 === node1_ && r1 === node2_)) {
+          if (node1_ === r1 || node2_ === r1) {
+            if (verbose === true) {
+              console.log("keep r1, remap r0", r1, r0);
+            }
+            node_map[r0] = node_map[r1];  // keep r1, remap r0
+          } else {
+            if (verbose === true) {
+              console.log("keep r0, remap r1", r0, r1);
+            }
+            node_map[r1] = node_map[r0];  // keep r0, remap r1
+          }
+
+          for (let k in node_map) {
+            if (k != node1_ && k != node2_) {
+              node_map[k] = node_map[node_map[k]];
+            }
+          }
+
+          if (verbose === true) {
+            console.log("updated node_map: ", node_map);
+          }
+        }
+      }
+
+      if (verbose === true) {
+        console.log("Remove zero end:", node_map);
+      }
+
+      let resistance_ordered_new = [];
+      for (let r of resistance_ordered) {
+        let [r1, r2] = [Math.min(node_map[r[0]], node_map[r[1]]), Math.max(node_map[r[0]], node_map[r[1]])];
+        if ( (r[2] !== 0 && r1 != r2) || (r[2] === 0 && r1 === node1_ && r2 === node2_)) {
+          resistance_ordered_new.push([r1, r2, r[2]]);
+        }
+      }
+
+      if (verbose === true) {
+        console.log("Remove zero end:", resistance_ordered_new);
+      }
+
+      return resistance_ordered_new;
+    }
+
+
+    function simplify_parallel(resistances_, verbose = false) {
+      let resistance_ordered = resistances_.map(r => [Math.min(r[0], r[1]), Math.max(r[0], r[1]), r[2]]);
+      let resistance_dict = {};
+      resistance_ordered.forEach(r => {
+        resistance_dict[[r[0], r[1]]] = [];
+      });
+
+      resistance_ordered.forEach(r => {
+        resistance_dict[[r[0], r[1]]].push(r);
+      });
+
+      for (let k in resistance_dict) {
+        if (resistance_dict[k].length == 1) {
+          let r = resistance_dict[k][0];
+          resistance_dict[k] = [r[0], r[1], r[2]];
+        } else {
+          if (Math.min(...resistance_dict[k].map(r => r[2])) == 0) { // found a short
+            let r = resistance_dict[k][0];
+            resistance_dict[k] = [r[0], r[1], 0];
+          } else {
+            resistance_dict[k] = [k.split(',')[0], k.split(',')[1], 1 / (resistance_dict[k].reduce((acc, r) => acc + (1 / r[2]), 0))];
+          }
+          if (verbose == true) {
+            console.log("Parallel simplified: ", resistance_dict[k]);
+          }
+        }
+      }
+
+      return Object.values(resistance_dict);
+    }
+
+    function simplify_series(resistances_, node1, node2, verbose = false) {
+      let resistance_ordered = resistances_.map(r => [Math.min(r[0], r[1]), Math.max(r[0], r[1]), r[2]]);
+      let nodes = {};
+      resistance_ordered.forEach(r => {
+        if (r[0] in nodes) {
+          nodes[r[0]].push(r);
+        } else {
+          nodes[r[0]] = [r];
+        }
+        if (r[1] in nodes) {
+          nodes[r[1]].push(r);
+        } else {
+          nodes[r[1]] = [r];
+        }
+      });
+      if (verbose == true) {
+        console.log(nodes);
+      }
+      for (let i in nodes) {
+        if (nodes[i].length == 2 && i != node1 && i != node2) {
+          let res_new = nodes[i][0][2] + nodes[i][1][2];
+          let n1_new = (nodes[i][0][1] == i) ? nodes[i][0][0] : nodes[i][0][1];
+          let n2_new = (nodes[i][1][1] == i) ? nodes[i][1][0] : nodes[i][1][1];
+          let r_new = [Math.min(n1_new, n2_new), Math.max(n1_new, n2_new), res_new];
+          resistance_ordered = resistance_ordered.filter(r => !nodes[i].includes(r));
+          resistance_ordered.push(r_new);
+          if (verbose == true) {
+            console.log("Series Node", i);
+            console.log("Series add:", r_new);
+            console.log("Series remove:", nodes[i]);
+            console.log(resistance_ordered);
+          }
+          break;
+        }
+      }
+      return resistance_ordered;
+    }
+
+
+    function simplify_resistors(resistances_, node1_, node2_, verbose = false) {
+      let node1 = Math.min(node1_, node2_);
+      let node2 = Math.max(node1_, node2_);   
+      let res = resistances_;
+      
+      if (verbose == true) {
+          console.log(res);
+      }
+      
+      let l = res.length;
+      while (l > 1) {
+        res = remove_zero_resistances(res, node1, node2, verbose);
+        if (verbose == true) {
+          console.log("After remove zeros", res);
+        }
+        res = simplify_series(res, node1, node2, verbose);
+        if (verbose == true) {
+          console.log("After series", res);
+        }
+        res = simplify_parallel(res, verbose);
+        if (verbose == true) {
+          console.log("After parallel", res);
+        }
+        if (res.length == l) {
+          break;
+        }
+        l = res.length;
+      }
+      if (verbose == true) {
+        console.log(res);
+      }
+      return res;
+    }
+
+    function effective_resistance(resistances_, node1_, node2_, verbose = false) {
+      if (node1_ == node2_) {
+        return 0;
+      }
+      let node1 = Math.min(node1_, node2_);
+      let node2 = Math.max(node1_, node2_);
+      let res = simplify_resistors(resistances_, Math.min(node1, node2), Math.max(node1, node2), verbose);
+      for (let i = 0; i < res.length; i++) {
+        let r = res[i];
+        let r1 = Math.min(r[0], r[1]);
+        let r2 = Math.max(r[0], r[1]);
+        if (r1 == node1 && r2 == node2) {
+          return r[2];
+        }
+      }  
+      return 1;
+    }
+
+
+
+
+
+
+    initCanvas();
+    redraw();
+  </script>
+</body>
+
+</html>
